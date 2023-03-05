@@ -513,4 +513,52 @@ object NDArrayDot {
             }
         }
     }
+
+    suspend fun cupertankParallel_iterator(left: FloatNDArray, right: FloatNDArray, dest: MutableFloatNDArray) {
+        val n = left.shape[0]
+        val k = left.shape[1]
+        val m = right.shape[1]
+
+        val lBlockSize = left.array.blockSize
+        val rdBlockSize = right.array.blockSize
+
+        val lBlocksInRow = left.shape[1] / lBlockSize
+        val rdBlocksInRow = right.shape[1] / rdBlockSize
+
+        val threads = Runtime.getRuntime().availableProcessors()
+        val nStep = if (n < threads) 1 else n / threads
+
+        coroutineScope {
+            val leftBlocks = left.array.blocks
+            val rightBlocks = right.array.blocks
+            val destBlocks = dest.array.blocks
+
+            for (nStart in 0 until n step nStep) {
+                launch {
+                    for (i in nStart until min(nStart + nStep, n)) {
+                        val leftBlockOffset = i * lBlocksInRow
+                        val destBlockOffset = i * rdBlocksInRow
+                        val rightBlocksIter = rightBlocks.iterator()
+
+                        for (lCol in 0 until lBlocksInRow) {
+                            val leftBlock = leftBlocks[leftBlockOffset + lCol]
+
+                            for (k in 0 until lBlockSize) {
+                                val temp = leftBlock[k]
+
+                                for (rdCol in 0 until rdBlocksInRow) {
+                                    val destBlock = destBlocks[destBlockOffset + rdCol]
+                                    val rightBlock = rightBlocksIter.next()
+
+                                    for (j in destBlock.indices) {
+                                        destBlock[j] += temp * rightBlock[j]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
