@@ -561,4 +561,347 @@ object NDArrayDot {
             }
         }
     }
+
+    suspend fun some_shit_2(a: FloatNDArray, b: FloatNDArray, c: MutableFloatNDArray) {
+        //        a.dot(b, c, EmptyCoroutineContext)
+
+        require(a.shape.size in 1..2 && b.shape.size in 1..2)
+        val actualThis = (if (a.shape.size == 1) a.reshape(intArrayOf(1, a.shape[0])) else a) as FloatNDArray
+        val actualOther = (if (b.shape.size == 1) b.reshape(intArrayOf(1, b.shape[0])) else b) as FloatNDArray
+
+        require(actualThis.shape[1] == actualOther.shape[0])
+
+        val n = actualThis.shape[0]
+        val t = actualThis.shape[1]
+
+        val lBlockSize = actualThis.array.blockSize
+        val rdBlockSize = c.array.blockSize
+
+        val lBlocksInRow = a.shape[1] / lBlockSize
+        val rdBlocksInRow = b.shape[1] / rdBlockSize
+
+        val nStep = 2
+        val tTileSize = minOf(lBlockSize, ((65024 - nStep * rdBlockSize) / (nStep + rdBlockSize)).takeIf { it > 0 } ?: t)
+
+        coroutineScope {
+            for (iStart in 0 until n step nStep) {
+                val iEnd = minOf(iStart + nStep, n)
+                for (rdCol in 0 until rdBlocksInRow) {
+                    launch {
+                        // iterating over blocks in i-th line in left matrix
+                        for (lCol in 0 until lBlocksInRow) {
+                            for (tStart in 0 until lBlockSize step tTileSize) {
+                                val tEnd = minOf(tStart + tTileSize, lBlockSize)
+                                /*
+                                        i * rdBlockInRow equals taking i-th line in destination matrix
+                                        rdCol is number of current block in row
+                                         */
+                                for (i in iStart until iEnd) {
+                                    val destBlock = c.array.blocks[i * rdBlocksInRow + rdCol]
+                                    //i * lBlocksInRow equals taking i-th line in left matrix
+                                    val leftBlock = actualThis.array.blocks[i * lBlocksInRow + lCol]
+                                    val rightBlockOffset = lCol * lBlockSize
+
+                                    // iterating in left block
+                                    for (k in tStart until tEnd) {
+                                        val temp = leftBlock[k]
+                                        /*
+                                                         * lCol * lBlockSize + k is linear index in row in left matrix
+                                                         * number temp staying at [i, lCol * lBlockSize + k] in left matrix,
+                                                         * therefore, we should take (lCol * lBlockSize + k) row in right matrix
+                                                         * (lCol * lBlockSize) moved in rightBlockOffset due to performance purposes
+                                                         */
+                                        val rightBlock = actualOther.array.blocks[(rightBlockOffset + k) * rdBlocksInRow + rdCol]
+
+                                        for (j in 0 until rdBlockSize) {
+                                            destBlock[j] += destBlock[j] + temp * rightBlock[j]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+
+    suspend fun some_shit_4(a: FloatNDArray, b: FloatNDArray, c: MutableFloatNDArray) {
+        //        a.dot(b, c, EmptyCoroutineContext)
+
+        require(a.shape.size in 1..2 && b.shape.size in 1..2)
+        val actualThis = (if (a.shape.size == 1) a.reshape(intArrayOf(1, a.shape[0])) else a) as FloatNDArray
+        val actualOther = (if (b.shape.size == 1) b.reshape(intArrayOf(1, b.shape[0])) else b) as FloatNDArray
+
+        require(actualThis.shape[1] == actualOther.shape[0])
+
+        val n = actualThis.shape[0]
+        val t = actualThis.shape[1]
+
+        val lBlockSize = actualThis.array.blockSize
+        val rdBlockSize = c.array.blockSize
+
+        val lBlocksInRow = a.shape[1] / lBlockSize
+        val rdBlocksInRow = b.shape[1] / rdBlockSize
+
+        val nStep = 4
+        val tTileSize = minOf(lBlockSize, ((65024 * 2 / 3 - nStep * rdBlockSize) / (nStep + rdBlockSize) - 64 / Float.SIZE_BYTES).takeIf { it > 0 } ?: t)
+        // ((512 * 112) + 112 + 512) * 4
+
+        coroutineScope {
+            for (iStart in 0 until n step nStep) {
+                val iEnd = minOf(iStart + nStep, n)
+                for (rdCol in 0 until rdBlocksInRow) {
+                    launch {
+                        // iterating over blocks in i-th line in left matrix
+                        for (lCol in 0 until lBlocksInRow) {
+                            for (tStart in 0 until lBlockSize step tTileSize) {
+                                val tEnd = minOf(tStart + tTileSize, lBlockSize)
+                                /*
+                                        i * rdBlockInRow equals taking i-th line in destination matrix
+                                        rdCol is number of current block in row
+                                         */
+                                for (i in iStart until iEnd) {
+                                    //i * lBlocksInRow equals taking i-th line in left matrix
+                                    val leftBlock = actualThis.array.blocks[i * lBlocksInRow + lCol]
+                                    val destBlock = c.array.blocks[i * rdBlocksInRow + rdCol]
+                                    val rightBlockOffset = lCol * lBlockSize
+
+                                    // iterating in left block
+                                    for (k in tStart until tEnd) {
+                                        val rightBlock = actualOther.array.blocks[(rightBlockOffset + k) * rdBlocksInRow + rdCol]
+                                        val temp = leftBlock[k]
+                                        /*
+                                                         * lCol * lBlockSize + k is linear index in row in left matrix
+                                                         * number temp staying at [i, lCol * lBlockSize + k] in left matrix,
+                                                         * therefore, we should take (lCol * lBlockSize + k) row in right matrix
+                                                         * (lCol * lBlockSize) moved in rightBlockOffset due to performance purposes
+                                                         */
+
+                                        for (j in 0 until rdBlockSize) {
+                                            destBlock[j] += destBlock[j] + temp * rightBlock[j]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+
+    suspend fun some_shit_8(a: FloatNDArray, b: FloatNDArray, c: MutableFloatNDArray) {
+        //        a.dot(b, c, EmptyCoroutineContext)
+
+        require(a.shape.size in 1..2 && b.shape.size in 1..2)
+        val actualThis = (if (a.shape.size == 1) a.reshape(intArrayOf(1, a.shape[0])) else a) as FloatNDArray
+        val actualOther = (if (b.shape.size == 1) b.reshape(intArrayOf(1, b.shape[0])) else b) as FloatNDArray
+
+        require(actualThis.shape[1] == actualOther.shape[0])
+
+        val n = actualThis.shape[0] // 24
+        val t = actualThis.shape[1] // 256
+
+        val lBlockSize = actualThis.array.blockSize // 256
+        val rdBlockSize = c.array.blockSize // 512
+
+        val lBlocksInRow = a.shape[1] / lBlockSize // 1
+        val rdBlocksInRow = b.shape[1] / rdBlockSize // 2
+
+        val nStep = 8
+        val tTileSize = minOf(lBlockSize, ((65024 - nStep * rdBlockSize) / (nStep + rdBlockSize) - 64 / Float.SIZE_BYTES).takeIf { it > 0 } ?: t)
+        // 117
+
+
+
+        coroutineScope {
+            for (iStart in 0 until n step nStep) {
+                val iEnd = minOf(iStart + nStep, n)
+                for (rdCol in 0 until rdBlocksInRow) {
+                    launch {
+                        // iterating over blocks in i-th line in left matrix
+                        for (lCol in 0 until lBlocksInRow) {
+                            for (tStart in 0 until lBlockSize step tTileSize) {
+                                val tEnd = minOf(tStart + tTileSize, lBlockSize)
+                                /*
+                                        i * rdBlockInRow equals taking i-th line in destination matrix
+                                        rdCol is number of current block in row
+                                         */
+                                for (i in iStart until iEnd) {
+                                    val destBlock = c.array.blocks[i * rdBlocksInRow + rdCol]
+                                    //i * lBlocksInRow equals taking i-th line in left matrix
+                                    val leftBlock = actualThis.array.blocks[i * lBlocksInRow + lCol]
+                                    val rightBlockOffset = lCol * lBlockSize
+
+                                    // iterating in left block
+                                    for (k in tStart until tEnd) {
+                                        val temp = leftBlock[k]
+                                        /*
+                                                         * lCol * lBlockSize + k is linear index in row in left matrix
+                                                         * number temp staying at [i, lCol * lBlockSize + k] in left matrix,
+                                                         * therefore, we should take (lCol * lBlockSize + k) row in right matrix
+                                                         * (lCol * lBlockSize) moved in rightBlockOffset due to performance purposes
+                                                         */
+                                        val rightBlock = actualOther.array.blocks[(rightBlockOffset + k) * rdBlocksInRow + rdCol]
+
+                                        for (j in 0 until rdBlockSize) {
+                                            destBlock[j] += destBlock[j] + temp * rightBlock[j]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+
+    suspend fun cupertankParallel_tilethalf_tilen(left: FloatNDArray, right: FloatNDArray, dest: MutableFloatNDArray) {
+        val n = left.shape[0] // 24
+        val k = left.shape[1] // 256
+        val m = right.shape[1] // 4838
+
+        val lBlockSize = left.array.blockSize // 256
+        val rdBlockSize = right.array.blockSize // 2419
+
+        val lBlocksInRow = left.shape[1] / lBlockSize // 1
+        val rdBlocksInRow = right.shape[1] / rdBlockSize // 2
+
+        val threads = Runtime.getRuntime().availableProcessors() // 12
+        val nStep = if (n < threads) 1 else n / threads * 2 // 2
+
+        val (mBlocksStep, mStep) = run {
+            val PAGE_BYTES = 4 * 1024
+            val PAGE_FLOATS = PAGE_BYTES / Float.SIZE_BYTES
+
+            val CACHE_LINE_BYTES = 64
+            val CACHE_LINE_FLOATS = CACHE_LINE_BYTES / Float.SIZE_BYTES
+
+            if (rdBlockSize > PAGE_FLOATS) {
+                1 to PAGE_FLOATS
+            } else {
+                PAGE_FLOATS / rdBlockSize to rdBlockSize +
+                        if (rdBlockSize % CACHE_LINE_FLOATS != 0)
+                            CACHE_LINE_FLOATS - (rdBlockSize % CACHE_LINE_FLOATS)
+                        else 0
+            }
+        } // 1, 1024
+
+        val kStep = run {
+            val CACHE_BYTES = 256 * 1024 / 2 - 8 * 1024
+            val CACHE_FLOATS = CACHE_BYTES / Float.SIZE_BYTES
+
+            /*
+            kStep * mStep * mBlockStep + kStep + kStep * mBlockStep + mStep * mBlockStep + mBlockStep = CACHE_FLOATS
+            (CACHE_FLOATS - mStep * mBlockStep - mBlockStep) / (mStep * mBlockStep + mBlockStep + 1)
+
+            (30720 - 1024 * 1 - 1 - 32) / (1024 * 1 + 1 + 1)
+             */
+
+            val CACHE_LINE_BYTES = 64
+            val CACHE_LINE_FLOATS = CACHE_LINE_BYTES / Float.SIZE_BYTES
+
+//            val idealKStep = (CACHE_FLOATS - nStep * (mStep * mBlocksStep) - nStep * mBlocksStep - nStep) / (nStep + mStep * mBlocksStep + mBlocksStep)
+            val idealKStep = (CACHE_FLOATS - mStep * mBlocksStep - mBlocksStep - CACHE_LINE_FLOATS * 2) / (mStep * mBlocksStep + mBlocksStep + 1)
+
+
+            (idealKStep /*- (idealKStep % CACHE_LINE_FLOATS)*/)
+                .takeIf { it in 1 until lBlockSize } ?: lBlockSize
+        } // 48
+        // 30720
+        // 27
+
+        coroutineScope {
+            for (nStart in 0 until n step nStep) {
+                val nEnd = min(nStart + nStep, n)
+                for (rdColStart in 0 until rdBlocksInRow step mBlocksStep) {
+                    val rdColEnd = minOf(rdColStart + mBlocksStep, rdBlocksInRow)
+                    for (jStart in 0 until rdBlockSize step mStep) {
+                        val jEnd = minOf(jStart + mStep, rdBlockSize)
+                        launch {
+                            for (lCol in 0 until lBlocksInRow) {
+                                val rightBlockOffset = lCol * lBlockSize
+                                for (kStart in 0 until lBlockSize step kStep) {
+                                    val kEnd = minOf(kStart + kStep, lBlockSize)
+                                    for (i in nStart until nEnd) {
+                                        val leftBlockOffset = i * lBlocksInRow
+                                        val destBlockOffset = i * rdBlocksInRow
+
+                                        val leftBlock = left.array.blocks[leftBlockOffset + lCol]
+
+                                        for (k in kStart until kEnd) {
+                                            val rightBlockOffsetFull = (rightBlockOffset + k) * rdBlocksInRow
+                                            val temp = leftBlock[k]
+
+                                            for (rdCol in rdColStart until rdColEnd) {
+                                                val destBlock = dest.array.blocks[destBlockOffset + rdCol]
+                                                val rightBlock = right.array.blocks[rightBlockOffsetFull + rdCol]
+
+                                                for (j in jStart until jEnd) {
+                                                    destBlock[j] += temp * rightBlock[j]
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun cupertankParallel_shit(left: FloatNDArray, right: FloatNDArray, dest: MutableFloatNDArray) {
+        val n = left.shape[0]
+        val k = left.shape[1]
+        val m = right.shape[1]
+
+        val lBlockSize = left.array.blockSize
+        val rdBlockSize = right.array.blockSize
+
+        val lBlocksInRow = left.shape[1] / lBlockSize
+        val rdBlocksInRow = right.shape[1] / rdBlockSize
+
+        val threads = Runtime.getRuntime().availableProcessors()
+        val nStep = if (n < threads) 1 else n / threads
+
+        coroutineScope {
+            for (nStart in 0 until n step nStep) {
+                launch {
+                    for (i in nStart until min(nStart + nStep, n)) {
+                        val leftBlockOffset = i * lBlocksInRow
+                        val destBlockOffset = i * rdBlocksInRow
+                        val rightBlocksIter = right.array.blocks.iterator()
+
+                        for (lCol in 0 until lBlocksInRow) {
+                            val leftBlock = left.array.blocks[leftBlockOffset + lCol]
+//                            val rightBlockOffset = lCol * lBlockSize
+
+                            for (k in 0 until lBlockSize) {
+//                                val rightBlockOffsetFull = (rightBlockOffset + k) * rdBlocksInRow
+                                val temp = leftBlock[k]
+
+                                for (rdCol in 0 until rdBlocksInRow) {
+                                    val destBlock = dest.array.blocks[destBlockOffset + rdCol]
+//                                    val rightBlock = right.array.blocks[rightBlockOffsetFull + rdCol]
+                                    val rightBlock = rightBlocksIter.next()
+
+                                    for (j in destBlock.indices) {
+                                        destBlock[j] += temp * rightBlock[j]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
